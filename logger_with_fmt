@@ -1,0 +1,135 @@
+#pragma once
+
+#ifdef VKT_LOGGING
+
+#include <ctime>
+#include <chrono>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+
+#include "fmt/core.h"
+
+#include "type.hpp"
+
+namespace vkt
+{
+
+enum class Level
+{
+    None = 0,
+    Debug,
+    Info,
+    Warn,
+    Error,
+};
+
+static const std::string_view LevelToString(Level level)
+{
+    switch (level)
+    {
+        case Level::Debug:  return "Debug";
+        case Level::Info:   return "Info";
+        case Level::Warn:   return "Warn";
+        case Level::Error:  return "Error";
+        case Level::None:   return "None";
+    }
+}
+
+class Logger
+{
+public:
+    Logger(Level level = Level::None)
+        : m_Level(level)
+    {
+
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+        localtime_s(&tm, &time);
+
+        fmt::println(
+            "{:02}:{:02}:{:02} [{}] Logger created",
+            tm.tm_hour, tm.tm_min, tm.tm_sec, LevelToString(level)
+        );
+    }
+
+    void SetLevel(Level level) { m_Level = level; }
+    Level GetLevel() const { return m_Level; }
+
+    template <typename... Args>
+    void Log(Level level, std::string_view file, int line,  fmt::format_string<Args...> format, Args&&... args) {
+        if (level < m_Level) {
+            return;
+        }
+        
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+        localtime_s(&tm, &time);
+
+        fmt::print(
+            "{:02}:{:02}:{:02} [{}] {}:{}: ",
+            tm.tm_hour, tm.tm_min, tm.tm_sec, LevelToString(level), file, line
+        );
+        fmt::println(format, std::forward<Args>(args)...);
+    }
+
+private:
+    Level m_Level;
+};
+
+class LoggerManager
+{
+public:
+    static LoggerManager& Instance() {
+        static ScopedPtr<LoggerManager> instance;
+        if (instance.get() == nullptr) {
+            instance.reset(new LoggerManager());
+        }
+        return *instance;
+    }
+
+    Logger& GetDefaultLogger() { return *m_DefaultLogger; }
+    const Logger& GetDefault() const { return *m_DefaultLogger; }
+
+    Logger& AddLogger(const std::string& name)
+    {
+        if (auto it = m_Loggers.find(name); it != m_Loggers.end()) {
+            return *it->second;
+        }
+        Logger* logger = new Logger();
+        m_Loggers[name].reset(logger);
+        return *logger;
+    }
+
+    Logger& GetLogger(const std::string& name) { return *m_Loggers[name]; }
+    const Logger& GetLogger(const std::string& name) const { return *m_Loggers.at(name); }
+private:
+    LoggerManager() {
+        m_DefaultLogger.reset(new Logger());
+    }
+private:
+    ScopedPtr<Logger> m_DefaultLogger;
+    std::unordered_map<std::string, ScopedPtr<Logger>> m_Loggers;
+};
+
+}
+
+#endif
+
+#ifdef VKT_LOGGING
+    #define DEFAULT_LOGGER ::vkt::LoggerManager::Instance().GetDefaultLogger()
+
+    #define LOG_DEBUG(...) ::vkt::LoggerManager::Instance().GetDefaultLogger().Log(::vkt::Level::Debug, __FILE__, __LINE__, __VA_ARGS__)
+    #define LOG_INFO( ...) ::vkt::LoggerManager::Instance().GetDefaultLogger().Log(::vkt::Level::Info,  __FILE__, __LINE__, __VA_ARGS__)
+    #define LOG_WARN( ...) ::vkt::LoggerManager::Instance().GetDefaultLogger().Log(::vkt::Level::Warn,  __FILE__, __LINE__, __VA_ARGS__)
+    #define LOG_ERROR(...) ::vkt::LoggerManager::Instance().GetDefaultLogger().Log(::vkt::Level::Error, __FILE__, __LINE__, __VA_ARGS__)
+#else
+    #define DEFAULT_LOGGER
+
+    #define LOG_DEBUG(...)
+    #define LOG_INFO( ...)
+    #define LOG_WARN( ...)
+    #define LOG_ERROR(...)
+#endif
